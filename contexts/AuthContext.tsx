@@ -9,9 +9,10 @@ type SingInCrentials = {
 }
 
 type AuthContextData = {
-  singIn(credentials: SingInCrentials): Promise<void>;
-  user?: User,
-  isAuthenticated: boolean,
+  singIn: (credentials: SingInCrentials) => Promise<void>;
+  singOut: () => void;
+  user?: User;
+  isAuthenticated: boolean;
 }
 
 type AuthProviderProps = {
@@ -27,14 +28,32 @@ export function singOut() {
   destroyCookie(undefined, 'nextauth.token')
   destroyCookie(undefined, 'nextauth.refreshToken')
 
+  autoChannel.postMessage('signOut')
+
   Router.push('/')
 }
 
 export const AuthContext = createContext({} as AuthContextData)
 
+let autoChannel: BroadcastChannel
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User>();
   const isAuthenticated = !!user;
+
+  useEffect(() => {
+
+    autoChannel = new BroadcastChannel('auth')
+    autoChannel.onmessage = (message) => {
+      switch (message.data) {
+        case 'signOut':
+          singOut()
+          break
+        default:
+          break
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const { 'nextauth.token': token } = parseCookies()
@@ -73,12 +92,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       api.defaults.headers['Authorization'] = `Bearer ${token}`
 
       Router.push('/dashboard')
+
     } catch (error) {
       console.log(error)
     }
   }
   return (
-    <AuthContext.Provider value={{ isAuthenticated, singIn, user }}>
+    <AuthContext.Provider value={{ isAuthenticated, singOut, singIn, user }}>
       {children}
     </AuthContext.Provider>
   )

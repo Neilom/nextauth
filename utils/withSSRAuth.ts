@@ -1,11 +1,21 @@
+import decode from "jwt-decode";
 import { GetServerSideProps, GetServerSidePropsContext, GetServerSidePropsResult } from "next";
-import { parseCookies } from "nookies";
+import { destroyCookie, parseCookies } from "nookies";
+import { AuthTokenError } from "../services/errors/AuthTokenError";
+import { validateUserPermissions } from "./validateUserPermissions";
 
-export function SSRAuth<P>(fn: GetServerSideProps<P>) {
+interface WithSSRAuthOptions {
+  permissions?: string[]
+  roles?: string[]
+}
+
+export function SSRAuth<P>(fn: GetServerSideProps<P>, options?: WithSSRAuthOptions) {
   return async (ctx: GetServerSidePropsContext): Promise<GetServerSidePropsResult<P>> => {
     const cookies = parseCookies(ctx)
+    const token = cookies['nextauth.token']
 
-    if (!cookies['nextauth.token']) {
+    const user = decode<{ permissions: string[], roles: string[] }>(token)
+    if (!token) {
       return {
         redirect: {
           destination: '/',
@@ -13,7 +23,39 @@ export function SSRAuth<P>(fn: GetServerSideProps<P>) {
         }
       }
     }
-    return await fn(ctx)
+
+    if (options) {
+      const { permissions, roles } = options
+
+      const hasValidade = validateUserPermissions({ user, permissions, roles })
+
+      if (!hasValidade) {
+        return {
+          redirect: {
+            destination: '/dashboard',
+            permanent: false
+          }
+        }
+      }
+    }
+
+    try {
+
+      return await fn(ctx)
+    } catch (error) {
+      if (error instanceof AuthTokenError) {
+        destroyCookie(ctx, 'nextauth.token')
+        destroyCookie(ctx, 'nextauth.refreshToken')
+
+        return {
+          redirect: {
+            destination: '/',
+            permanent: false
+          }
+        }
+      }
+      return error
+    }
   }
 
 }
